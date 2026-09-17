@@ -291,26 +291,40 @@ class HikvisionAlertStreamClient:
 
                 if "image/jpeg" in ctype:
                     # JPEG всегда идёт сразу за своим JSON-событием
+                    _LOGGER.debug("JPEG из потока, %d байт", len(body))
                     if pending_event is not None:
                         await self._on_event(pending_event, body)
                         pending_event = None
+                    else:
+                        _LOGGER.debug("JPEG пришёл без предшествующего события -- отбрасываю")
                     continue
 
                 if "application/json" not in ctype and "text" not in ctype:
+                    _LOGGER.debug("Часть потока с неизвестным Content-Type %r", ctype)
                     continue
 
+                raw = body.decode("utf-8", errors="replace")
                 try:
-                    event_json = json.loads(body.decode("utf-8", errors="replace"))
+                    event_json = json.loads(raw)
                 except json.JSONDecodeError:
+                    _LOGGER.debug("Часть потока не разобралась как JSON: %r", raw[:500])
                     continue
+                _LOGGER.debug("JSON из потока: %s", raw)
 
                 # Новый JSON означает, что у предыдущего события фото не будет.
                 if pending_event is not None:
                     await self._on_event(pending_event, None)
                     pending_event = None
 
-                if classify_event(event_json) is None:
+                classified = classify_event(event_json)
+                if classified is None:
                     continue  # heartbeat / не-ACS событие -- отдавать нечего
+                _LOGGER.debug(
+                    "Событие %s (major=%s minor=%s)",
+                    classified[0],
+                    classified[1]["major"],
+                    classified[1]["minor"],
+                )
                 pending_event = event_json
 
         # поток закрылся -- если было событие без фото, всё равно отдаём его
