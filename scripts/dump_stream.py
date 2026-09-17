@@ -78,7 +78,18 @@ async def dump(args: argparse.Namespace) -> int:
         async with session.get(url, ssl=False, headers=headers) as resp:
             print(f"[{_stamp()}] HTTP {resp.status}, Content-Type: {resp.headers.get('Content-Type')}")
             if resp.status != 200:
-                print(await resp.text())
+                text = await resp.text()
+                print(text)
+                if "deployExceedMax" in text:
+                    print(
+                        "\nТерминал ограничивает число одновременных подписок на alertStream,\n"
+                        "и свободных слотов нет. Скорее всего поток уже держит Home Assistant.\n"
+                        "Отключи интеграцию (Settings -> Devices & Services -> Hikvision Access\n"
+                        "Control -> меню записи -> Disable) либо останови HA, и запусти скрипт\n"
+                        "снова. Другие клиенты (iVMS, Hik-Connect, вторая копия HA) занимают\n"
+                        "слоты так же.",
+                        file=sys.stderr,
+                    )
                 return 1
 
             boundary = alertstream.HikvisionAlertStreamClient._parse_boundary(
