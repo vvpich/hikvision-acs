@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Подключение к терминалу СКУД",
+        "data": {
+          "host": "IP-адрес",
+          "port": "Порт",
+          "username": "Пользователь",
+          "password": "Пароль",
+          "name": "Имя устройства",
+          "verify_ssl": "Проверять HTTPS-сертификат"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Не удалось подключиться к устройству",
+      "invalid_auth": "Неверный логин или пароль",
+      "unknown": "Неожиданная ошибка"
+    },
+    "abort": {
+      "already_configured": "Это устройство уже добавлено"
+    }
+  },
+  "entity": {
+    "event": {
+      "access_event": { "name": "Событие доступа" }
+    },
+    "camera": {
+      "last_access_photo": { "name": "Фото последнего доступа" }
+    },
+    "sensor": {
+      "last_user": { "name": "Последний пользователь" },
+      "last_method": { "name": "Последний метод" },
+      "isapi_connection": { "name": "Соединение ISAPI" }
+    }
+  }
+}

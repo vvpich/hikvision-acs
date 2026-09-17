@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to the access control terminal",
+        "data": {
+          "host": "IP address",
+          "port": "Port",
+          "username": "Username",
+          "password": "Password",
+          "name": "Device name",
+          "verify_ssl": "Verify HTTPS certificate"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the device",
+      "invalid_auth": "Invalid username or password",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This device is already configured"
+    }
+  },
+  "entity": {
+    "event": {
+      "access_event": { "name": "Access event" }
+    },
+    "camera": {
+      "last_access_photo": { "name": "Last access photo" }
+    },
+    "sensor": {
+      "last_user": { "name": "Last user" },
+      "last_method": { "name": "Last method" },
+      "isapi_connection": { "name": "ISAPI connection" }
+    }
+  }
+}

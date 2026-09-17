@@ -1,0 +1,12 @@
+{
+  "domain": "hikvision_acs",
+  "name": "Hikvision Access Control",
+  "codeowners": ["@vvpich"],
+  "config_flow": true,
+  "documentation": "https://github.com/vvpich/hikvision-acs",
+  "integration_type": "device",
+  "issue_tracker": "https://github.com/vvpich/hikvision-acs/issues",
+  "iot_class": "local_push",
+  "requirements": [],
+  "version": "0.2.0"
+}
