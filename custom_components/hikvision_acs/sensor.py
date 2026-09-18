@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, SUCCESS_EVENT_TYPES
+from .const import DOMAIN
 
 
 async def async_setup_entry(
@@ -52,23 +52,34 @@ class _BaseHikAcsSensor(SensorEntity):
 
 
 class HikAcsLastUserSensor(_BaseHikAcsSensor):
+    """Имя последней успешной авторизации -- держится до следующего прохода."""
+
     def __init__(self, entry: ConfigEntry, data) -> None:
         super().__init__(entry, data, "last_user")
 
     @property
     def native_value(self) -> str | None:
-        if self._data.last_event_type in SUCCESS_EVENT_TYPES:
-            return self._data.last_event_attrs.get("name")
-        return None
+        return self._data.last_user
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = self._data.last_auth_attrs
+        return {
+            "employee_no": attrs.get("employee_no"),
+            "card_no": attrs.get("card_no"),
+            "device_time": attrs.get("device_time"),
+        }
 
 
 class HikAcsLastMethodSensor(_BaseHikAcsSensor):
+    """Тип последней авторизации, без служебных событий двери."""
+
     def __init__(self, entry: ConfigEntry, data) -> None:
         super().__init__(entry, data, "last_method")
 
     @property
     def native_value(self) -> str | None:
-        return self._data.last_event_type
+        return self._data.last_auth_type
 
 
 class HikAcsConnectionSensor(_BaseHikAcsSensor):

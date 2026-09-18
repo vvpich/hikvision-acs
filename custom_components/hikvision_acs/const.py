@@ -37,17 +37,33 @@ SEEN_SERIALS_MEMORY = 64
 # моделей). Разные прошивки могут добавлять свои коды -- неизвестные
 # пары публикуются как "unknown_<major>_<minor>", ничего не теряется.
 EVENT_LABELS: dict[tuple[int, int], str] = {
+    # Подтверждено на DS-K1T342MFWX (прошивка шлёт именно эти коды):
+    (5, 1): "card_authenticated",
+    (5, 21): "door_opened",
+    (5, 22): "door_closed",
+    # Из документации, на DS-K1T342MFWX не наблюдались -- другие прошивки
+    # и другие способы верификации:
+    (5, 27): "exit_button_pressed",
+    (5, 38): "card_authenticated",
     (5, 75): "face_authenticated",
     (5, 76): "face_auth_failed",
-    (5, 38): "card_authenticated",
     (5, 113): "fingerprint_authenticated",
-    (5, 27): "exit_button_pressed",
 }
 
-# Какие события считаем "успешной авторизацией" для целей camera/last_user
-SUCCESS_EVENT_TYPES = {
-    "face_authenticated",
+# События, означающие попытку авторизации человека. Только они обновляют
+# фото и сенсоры "последний пользователь/метод": door_opened приходит через
+# доли секунды после прохода и иначе затирал бы и имя, и снимок.
+AUTH_EVENT_TYPES = {
     "card_authenticated",
+    "face_authenticated",
+    "fingerprint_authenticated",
+    "face_auth_failed",
+}
+
+# Какие из них считаем успешной авторизацией (для sensor.last_user)
+SUCCESS_EVENT_TYPES = {
+    "card_authenticated",
+    "face_authenticated",
     "fingerprint_authenticated",
 }
 

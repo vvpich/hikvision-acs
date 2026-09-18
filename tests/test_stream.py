@@ -182,6 +182,34 @@ def test_classify_known_event(alertstream):
     assert attrs["device_time"] == "2026-09-17T22:30:00+03:00"
 
 
+def test_classify_real_ds_k1t342mfwx_codes(alertstream, const):
+    """Коды, снятые с живого DS-K1T342MFWX."""
+    assert const.EVENT_LABELS[(5, 1)] == "card_authenticated"
+    assert const.EVENT_LABELS[(5, 21)] == "door_opened"
+    assert const.EVENT_LABELS[(5, 22)] == "door_closed"
+    # события двери -- не авторизация, фото и last_user они не трогают
+    assert "door_opened" not in const.AUTH_EVENT_TYPES
+    assert const.AUTH_EVENT_TYPES <= set(const.ALL_EVENT_TYPES)
+
+
+def test_classify_card_event_from_real_payload(alertstream):
+    import json
+
+    payload = json.loads(
+        '{"dateTime":"2026-09-18T13:22:09+03:00","eventType":"AccessControllerEvent",'
+        '"AccessControllerEvent":{"majorEventType":5,"subEventType":1,'
+        '"cardNo":"1947916138","cardType":1,"name":"ilya","cardReaderNo":1,'
+        '"employeeNoString":"7","serialNo":59094,"userType":"normal",'
+        '"currentVerifyMode":"faceOrFpOrCardOrPw","currentEvent":true}}'
+    )
+    label, attrs = alertstream.classify_event(payload)
+    assert label == "card_authenticated"
+    assert attrs["name"] == "ilya"
+    assert attrs["card_no"] == "1947916138"
+    assert attrs["employee_no"] == "7"
+    assert attrs["is_current"] is True
+
+
 def test_classify_unknown_code(alertstream):
     import json
 

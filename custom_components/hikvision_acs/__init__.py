@@ -10,7 +10,13 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNA
 from homeassistant.core import HomeAssistant
 
 from .alertstream import HikvisionAlertStreamClient, classify_event
-from .const import CONF_VERIFY_SSL, DOMAIN, EVENT_BUS_EVENT
+from .const import (
+    AUTH_EVENT_TYPES,
+    CONF_VERIFY_SSL,
+    DOMAIN,
+    EVENT_BUS_EVENT,
+    SUCCESS_EVENT_TYPES,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +35,12 @@ class HikAcsRuntimeData:
     event_seq: int = 0
     last_event_type: str | None = None
     last_event_attrs: dict = field(default_factory=dict)
+    # Отдельное состояние авторизаций: служебные события вроде door_opened
+    # приходят следом за проходом и не должны затирать фото и имя.
+    auth_seq: int = 0
+    last_auth_type: str | None = None
+    last_auth_attrs: dict = field(default_factory=dict)
+    last_user: str | None = None
     last_photo: bytes | None = None
     _listeners: list[Callable[[], None]] = field(default_factory=list)
 
@@ -57,9 +69,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data.event_seq += 1
         data.last_event_type = event_type
         data.last_event_attrs = attrs
-        # Фото всегда перезаписываем -- иначе к событию без фото прилипает
-        # снимок предыдущего человека.
-        data.last_photo = photo
+        if event_type in AUTH_EVENT_TYPES:
+            data.auth_seq += 1
+            data.last_auth_type = event_type
+            data.last_auth_attrs = attrs
+            # Фото перезаписываем всегда, в том числе в None -- иначе к
+            # авторизации без снимка прилипает лицо предыдущего человека.
+            data.last_photo = photo
+            if event_type in SUCCESS_EVENT_TYPES:
+                data.last_user = attrs.get("name")
         hass.bus.async_fire(
             EVENT_BUS_EVENT,
             {"entry_id": entry.entry_id, "event_type": event_type, "has_photo": photo is not None, **attrs},

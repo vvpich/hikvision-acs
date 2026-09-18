@@ -45,10 +45,12 @@ class HikAcsLastPhotoCamera(Camera):
             self._remove_listener()
 
     def _handle_update(self) -> None:
-        # Пишем состояние и когда фото пропало (событие без снимка), чтобы HA
-        # не отдавал кадр от предыдущего человека.
-        if self._data.event_seq != self._last_seen_seq:
-            self._last_seen_seq = self._data.event_seq
+        # Реагируем только на авторизации: door_opened приходит следом за
+        # проходом и сбросил бы только что полученный снимок. Состояние
+        # пишем и когда фото пропало, чтобы не отдавать кадр от предыдущего
+        # человека.
+        if self._data.auth_seq != self._last_seen_seq:
+            self._last_seen_seq = self._data.auth_seq
             self.async_write_ha_state()
 
     async def async_camera_image(
