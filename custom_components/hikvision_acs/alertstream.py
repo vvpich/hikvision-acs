@@ -14,12 +14,19 @@ import json
 import logging
 import os
 import re
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import aiohttp
 
-from .const import ALERT_STREAM_PATH, EVENT_LABELS, MAX_BUFFER_BYTES
+from .const import (
+    ALERT_STREAM_PATH,
+    EVENT_LABELS,
+    MAJOR_EVENT,
+    MAX_BUFFER_BYTES,
+    SEEN_SERIALS_MEMORY,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -184,6 +191,18 @@ class HikvisionAlertStreamClient:
         self._task: asyncio.Task | None = None
         self._stopped = False
         self._nc = 0
+        self._seen_serials: deque[int] = deque(maxlen=SEEN_SERIALS_MEMORY)
+
+    def _is_duplicate(self, event_json: dict) -> bool:
+        """Терминал переотдаёт последние записи журнала при переподключении."""
+        serial = event_json.get("AccessControllerEvent", {}).get("serialNo")
+        if serial is None:
+            return False
+        if serial in self._seen_serials:
+            _LOGGER.debug("Повтор события serialNo=%s -- пропускаю", serial)
+            return True
+        self._seen_serials.append(serial)
+        return False
 
     def start(self) -> None:
         self._stopped = False
@@ -318,7 +337,9 @@ class HikvisionAlertStreamClient:
 
                 classified = classify_event(event_json)
                 if classified is None:
-                    continue  # heartbeat / не-ACS событие -- отдавать нечего
+                    continue  # heartbeat / не событие доступа -- отдавать нечего
+                if self._is_duplicate(event_json):
+                    continue
                 _LOGGER.debug(
                     "Событие %s (major=%s minor=%s)",
                     classified[0],
@@ -347,7 +368,12 @@ class HikvisionAlertStreamClient:
 
 
 def classify_event(event_json: dict) -> tuple[str, dict] | None:
-    """Возвращает (event_type, attributes) или None, если это не AccessControllerEvent."""
+    """Возвращает (event_type, attributes) или None, если это не событие доступа.
+
+    Отсеиваются keep-alive, не-ACS события и все категории majorEventType
+    кроме MAJOR_EVENT: тревоги, неисправности и операции с устройством
+    авторизациями не являются.
+    """
     acs = event_json.get("AccessControllerEvent")
     if not acs:
         return None
@@ -356,6 +382,14 @@ def classify_event(event_json: dict) -> tuple[str, dict] | None:
     if major is None or minor is None:
         return None
     major, minor = int(major), int(minor)
+    if major != MAJOR_EVENT:
+        _LOGGER.debug(
+            "Пропускаю не-событие доступа: major=%s minor=%s (%s)",
+            major,
+            minor,
+            event_json.get("eventDescription"),
+        )
+        return None
     label = EVENT_LABELS.get((major, minor), "unknown_access_event")
     attributes = {
         "major": major,
@@ -366,5 +400,7 @@ def classify_event(event_json: dict) -> tuple[str, dict] | None:
         "verify_mode": acs.get("currentVerifyMode"),
         "device_time": event_json.get("dateTime"),
         "serial_no": acs.get("serialNo"),
+        # false => запись из журнала терминала, а не происходящее сейчас
+        "is_current": acs.get("currentEvent"),
     }
     return label, attributes

@@ -16,6 +16,21 @@ DEVICE_INFO_PATH = "/ISAPI/System/deviceInfo?format=json"
 # рассинхронизирован, лучше переподключиться, чем съесть всю память.
 MAX_BUFFER_BYTES = 8 * 1024 * 1024
 
+# Категории majorEventType в AccessControllerEvent:
+#   1 MAJOR_ALARM     -- тревоги (взлом, тампер)
+#   2 MAJOR_EXCEPTION -- неисправности
+#   3 MAJOR_OPERATION -- операции с устройством (в т.ч. подключение ISAPI-
+#                        клиента: 3/121 и 3/122 прилетают на каждый коннект
+#                        самого Home Assistant)
+#   5 MAJOR_EVENT     -- события доступа, то есть авторизации
+# Интеграция публикует только MAJOR_EVENT: остальное шумит и к проходам
+# людей отношения не имеет.
+MAJOR_EVENT = 5
+
+# Сколько serialNo помнить, чтобы не публиковать повторы: терминал при
+# переподключении заново отдаёт последние записи журнала (currentEvent=false).
+SEEN_SERIALS_MEMORY = 64
+
 # Коды majorEventType/subEventType для AccessControllerEvent.
 # Подтверждены официальным Hikvision ISAPI Developer Guide for Face
 # Recognition Terminals (DS-K1T342MFWX явно в списке поддерживаемых

@@ -41,6 +41,18 @@ HEARTBEAT = (
     '"eventType":"videoloss","eventState":"inactive","eventDescription":"videoloss alarm"}'
 )
 
+# Реальный payload с DS-K1T342MFWX: терминал пишет в журнал факт
+# подключения ISAPI-клиента. majorEventType=3 -- MAJOR_OPERATION, не проход.
+OPERATION_EVENT = (
+    '{"ipAddress":"192.168.7.104","portNo":443,"protocol":"HTTPS",'
+    '"dateTime":"2026-09-18T10:05:16+03:00","activePostCount":1,'
+    '"eventType":"AccessControllerEvent","eventState":"active",'
+    '"eventDescription":"Access Controller Event","AccessControllerEvent":'
+    '{"deviceName":"Access Controller","majorEventType":3,"subEventType":121,'
+    '"remoteHostAddr":"192.168.7.110","serialNo":59091,"currentEvent":false,'
+    '"frontSerialNo":59090,"label":"","purePwdVerifyEnable":true}}'
+)
+
 
 class _FakeContent:
     def __init__(self, chunks: list[bytes]) -> None:
@@ -183,6 +195,40 @@ def test_classify_ignores_non_acs(alertstream):
 
     assert alertstream.classify_event(json.loads(HEARTBEAT)) is None
     assert alertstream.classify_event({"AccessControllerEvent": {"name": "x"}}) is None
+
+
+def test_classify_ignores_operation_events(alertstream):
+    """major=3 (MAJOR_OPERATION) -- запись о подключении клиента, не проход."""
+    import json
+
+    assert alertstream.classify_event(json.loads(OPERATION_EVENT)) is None
+
+
+def test_operation_events_produce_no_ha_events(alertstream):
+    """Из-за них event.* дёргался на каждый реконнект HA."""
+    stream = _json_part(OPERATION_EVENT) + _json_part(HEARTBEAT) + BOUNDARY
+    assert _read(alertstream, [stream]) == []
+
+
+def test_replayed_event_deduplicated_by_serial(alertstream):
+    """При переподключении терминал заново отдаёт последние записи журнала."""
+    stream = (
+        _json_part(_acs_event(75, serial=100))
+        + _json_part(_acs_event(75, serial=100))
+        + _json_part(_acs_event(75, serial=101))
+        + BOUNDARY
+    )
+    events = _read(alertstream, [stream])
+    assert [e["AccessControllerEvent"]["serialNo"] for e, _ in events] == [100, 101]
+
+
+def test_classify_exposes_is_current(alertstream):
+    import json
+
+    payload = json.loads(_acs_event(75))
+    payload["AccessControllerEvent"]["currentEvent"] = False
+    _, attrs = alertstream.classify_event(payload)
+    assert attrs["is_current"] is False
 
 
 def test_all_labels_are_in_event_types(const):

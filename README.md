@@ -39,6 +39,16 @@ Recognition Terminals:
 логах (`unknown_access_event` покажет атрибуты `major`/`minor`, по ним
 можно добавить точную метку).
 
+`majorEventType` у Hikvision делится на категории: 1 — тревоги, 2 —
+неисправности, 3 — операции с устройством, 5 — события доступа.
+Публикуются только события категории 5. Остальное к проходам людей не
+относится: например, 3/121 и 3/122 терминал пишет на каждое подключение
+ISAPI-клиента, то есть на каждый коннект самого Home Assistant.
+
+Повторы отсеиваются по `serialNo`: при переподключении терминал заново
+отдаёт последние записи журнала (у них `currentEvent: false`, в атрибутах
+это `is_current`).
+
 ## Установка через HACS
 
 1. HACS → Integrations → меню ⋮ → Custom repositories
@@ -59,7 +69,7 @@ Control". Укажи IP, порт (обычно 443), логин/пароль **
 
 Через событие на шине (`hikvision_acs_event`) — в data лежат `event_type`,
 `name`, `employee_no`, `card_no`, `verify_mode`, `major`, `minor`,
-`device_time`, `serial_no`, `has_photo`, `entry_id`:
+`device_time`, `serial_no`, `is_current`, `has_photo`, `entry_id`:
 
 ```yaml
 automation:
