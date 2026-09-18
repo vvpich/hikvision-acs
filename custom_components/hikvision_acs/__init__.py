@@ -8,13 +8,16 @@ from dataclasses import dataclass, field
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .alertstream import HikvisionAlertStreamClient, classify_event
+from .alertstream import HikvisionAlertStreamClient, async_fetch_json, classify_event
 from .const import (
+    ACS_CFG_PATH,
     AUTH_EVENT_TYPES,
     CONF_VERIFY_SSL,
     DOMAIN,
     EVENT_BUS_EVENT,
+    PICTURE_UPLOAD_FLAGS,
     SUCCESS_EVENT_TYPES,
 )
 
@@ -56,6 +59,40 @@ class HikAcsRuntimeData:
     def notify(self) -> None:
         for cb in list(self._listeners):
             cb()
+
+
+async def _async_warn_if_pictures_disabled(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Без uploadCapPic/uploadVerificationPic терминал не вкладывает JPEG.
+
+    Диагностика: иначе пустая camera.* выглядит как баг интеграции, хотя
+    дело в настройках устройства.
+    """
+    base_url = f"https://{entry.data[CONF_HOST]}:{entry.data[CONF_PORT]}"
+    session = async_get_clientsession(hass, verify_ssl=entry.data[CONF_VERIFY_SSL])
+    try:
+        payload = await async_fetch_json(
+            session,
+            base_url,
+            ACS_CFG_PATH,
+            entry.data[CONF_USERNAME],
+            entry.data[CONF_PASSWORD],
+            entry.data[CONF_VERIFY_SSL],
+        )
+    except Exception as exc:  # noqa: BLE001 -- диагностика не должна ломать запуск
+        _LOGGER.debug("Не удалось прочитать %s: %s", ACS_CFG_PATH, exc)
+        return
+
+    cfg = payload.get("AcsCfg", {})
+    disabled = [flag for flag in PICTURE_UPLOAD_FLAGS if cfg.get(flag) is False]
+    if disabled:
+        _LOGGER.warning(
+            "Терминал не будет присылать фото: в /ISAPI/AccessControl/AcsCfg "
+            "выключено %s. Пока это так, camera.* останется пустой -- "
+            "включается в настройках устройства, см. README.",
+            ", ".join(disabled),
+        )
+    else:
+        _LOGGER.debug("Загрузка снимков на терминале включена: %s", cfg)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -101,6 +138,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.runtime_data = data
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"client": client, "data": data}
+
+    entry.async_create_background_task(
+        hass, _async_warn_if_pictures_disabled(hass, entry), "hikvision_acs_acscfg"
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # Запускаем поток только после того, как сущности созданы, иначе первые

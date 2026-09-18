@@ -169,6 +169,28 @@ async def async_build_auth_header(
     return _build_digest_header(username, password, "GET", path, challenge, nc=nc)
 
 
+async def async_fetch_json(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    path: str,
+    username: str,
+    password: str,
+    verify_ssl: bool,
+) -> dict:
+    """GET одного ISAPI-ресурса с той же схемой аутентификации, что и поток."""
+    url = f"{base_url}{path}"
+    auth_header = await async_build_auth_header(
+        session, url, path, username, password, verify_ssl
+    )
+    headers = {"Authorization": auth_header} if auth_header else {}
+    async with session.get(url, ssl=verify_ssl, headers=headers) as resp:
+        if resp.status == 401:
+            raise AuthFailed(f"{path} вернул 401 с переданными credentials")
+        resp.raise_for_status()
+        # Терминал отдаёт JSON с Content-Type application/json, но не всегда
+        return await resp.json(content_type=None)
+
+
 class HikvisionAlertStreamClient:
     """Держит соединение с терминалом и разбирает поток событий."""
 

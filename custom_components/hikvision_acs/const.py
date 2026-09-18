@@ -11,6 +11,11 @@ DEFAULT_NAME = "Hikvision Access Control"
 
 ALERT_STREAM_PATH = "/ISAPI/Event/notification/alertStream?format=json"
 DEVICE_INFO_PATH = "/ISAPI/System/deviceInfo?format=json"
+ACS_CFG_PATH = "/ISAPI/AccessControl/AcsCfg?format=json"
+
+# Флаги AcsCfg, без которых терминал не вкладывает JPEG в событие.
+# На заводских настройках DS-K1T342MFWX оба false.
+PICTURE_UPLOAD_FLAGS = ("uploadCapPic", "uploadVerificationPic")
 
 # Предохранитель: если boundary не находится, а буфер пухнет -- значит поток
 # рассинхронизирован, лучше переподключиться, чем съесть всю память.
