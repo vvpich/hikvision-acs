@@ -26,6 +26,9 @@ from .const import (
     MAJOR_EVENT,
     MAX_BUFFER_BYTES,
     SEEN_SERIALS_MEMORY,
+    SUBSCRIBE_EVENT_CANDIDATES,
+    SUBSCRIBE_EVENT_PATH,
+    SUBSCRIBE_TIMEOUT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -134,6 +137,28 @@ def _pick_challenge(headers: list[str]) -> tuple[str, str] | None:
     return basic
 
 
+def _auth_header_from_challenges(
+    challenges: list[str],
+    username: str,
+    password: str,
+    method: str,
+    path: str,
+    nc: int,
+) -> str:
+    picked = _pick_challenge(challenges)
+    if picked is None:
+        raise RuntimeError(f"Не нашёл поддерживаемой схемы в WWW-Authenticate: {challenges}")
+
+    scheme, header = picked
+    if scheme == "basic":
+        return _build_basic_header(username, password)
+
+    challenge = _parse_digest_challenge(header)
+    if not challenge.nonce:
+        raise RuntimeError("Не удалось разобрать WWW-Authenticate заголовок")
+    return _build_digest_header(username, password, method, path, challenge, nc=nc)
+
+
 async def async_build_auth_header(
     session: aiohttp.ClientSession,
     url: str,
@@ -142,6 +167,7 @@ async def async_build_auth_header(
     password: str,
     verify_ssl: bool,
     nc: int = 1,
+    method: str = "GET",
 ) -> str | None:
     """Пробный запрос ради 401, затем сборка Authorization под схему устройства.
 
@@ -155,18 +181,47 @@ async def async_build_auth_header(
             raise RuntimeError(f"Ожидался 401 (auth challenge), получен {resp.status}")
         challenges = list(resp.headers.getall("WWW-Authenticate", []))
 
-    picked = _pick_challenge(challenges)
-    if picked is None:
-        raise RuntimeError(f"Не нашёл поддерживаемой схемы в WWW-Authenticate: {challenges}")
+    return _auth_header_from_challenges(
+        challenges, username, password, method, path, nc
+    )
 
-    scheme, header = picked
-    if scheme == "basic":
-        return _build_basic_header(username, password)
 
-    challenge = _parse_digest_challenge(header)
-    if not challenge.nonce:
-        raise RuntimeError("Не удалось разобрать WWW-Authenticate заголовок")
-    return _build_digest_header(username, password, "GET", path, challenge, nc=nc)
+async def async_isapi_request(
+    session: aiohttp.ClientSession,
+    method: str,
+    base_url: str,
+    path: str,
+    username: str,
+    password: str,
+    verify_ssl: bool,
+    data: str | None = None,
+    content_type: str | None = None,
+) -> tuple[int, str]:
+    """Запрос к ISAPI с аутентификацией по челленджу устройства.
+
+    Digest считается для того же метода, которым уйдёт тело, поэтому
+    challenge берём тем же методом, а не GET'ом.
+    """
+    url = f"{base_url}{path}"
+    headers: dict[str, str] = {}
+    if content_type:
+        headers["Content-Type"] = content_type
+
+    async with session.request(
+        method, url, ssl=verify_ssl, data=data, headers=headers
+    ) as resp:
+        if resp.status != 401:
+            return resp.status, await resp.text()
+        challenges = list(resp.headers.getall("WWW-Authenticate", []))
+        await resp.read()
+
+    headers["Authorization"] = _auth_header_from_challenges(
+        challenges, username, password, method, path, nc=1
+    )
+    async with session.request(
+        method, url, ssl=verify_ssl, data=data, headers=headers
+    ) as resp:
+        return resp.status, await resp.text()
 
 
 async def async_fetch_json(
@@ -203,6 +258,7 @@ class HikvisionAlertStreamClient:
         verify_ssl: bool,
         on_event: EventCallback,
         on_connection_change: ConnectionCallback,
+        subscribe_pictures: bool = False,
     ) -> None:
         self._base_url = f"https://{host}:{port}"
         self._username = username
@@ -210,10 +266,12 @@ class HikvisionAlertStreamClient:
         self._verify_ssl = verify_ssl
         self._on_event = on_event
         self._on_connection_change = on_connection_change
+        self._subscribe_pictures = subscribe_pictures
         self._task: asyncio.Task | None = None
         self._stopped = False
         self._nc = 0
         self._seen_serials: deque[int] = deque(maxlen=SEEN_SERIALS_MEMORY)
+        self._subscribe_attempt = 0
 
     def _is_duplicate(self, event_json: dict) -> bool:
         """Терминал переотдаёт последние записи журнала при переподключении."""
@@ -259,9 +317,61 @@ class HikvisionAlertStreamClient:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60)
 
+    async def _async_subscribe(self, session: aiohttp.ClientSession) -> None:
+        """Подписка с pictureURLType=binary: попытка получить фото в потоке.
+
+        По умолчанию выключена (CONF_SUBSCRIBE_PICTURES): на V4.38.0
+        DS-K1T342MFWX ни один вариант XML не принят, а сами POST'ы
+        отъедают слот deploy, из-за чего alertStream остаётся без слота и
+        события перестают приходить вовсе.
+
+        Оформляется ДО открытия alertStream: подписка и поток делят один
+        лимит "deploy", и при уже открытом потоке устройство отвечает
+        deployExceedMax. Неподдерживающие прошивки просто вернут ошибку --
+        для них поток работает как раньше, без фото.
+        """
+        # Одна попытка на соединение: POST подписки, похоже, тоже занимает
+        # слот deploy, и серия попыток подряд оставляет alertStream без слота.
+        if not self._subscribe_pictures:
+            return
+
+        name, xml = SUBSCRIBE_EVENT_CANDIDATES[
+            self._subscribe_attempt % len(SUBSCRIBE_EVENT_CANDIDATES)
+        ]
+        self._subscribe_attempt += 1
+
+        try:
+            async with asyncio.timeout(SUBSCRIBE_TIMEOUT):
+                status, body = await async_isapi_request(
+                    session,
+                    "POST",
+                    self._base_url,
+                    SUBSCRIBE_EVENT_PATH,
+                    self._username,
+                    self._password,
+                    self._verify_ssl,
+                    data=xml,
+                    content_type="application/xml",
+                )
+        except Exception as exc:  # noqa: BLE001 -- подписка не критична для потока
+            _LOGGER.debug("Подписка (%s) не удалась: %s", name, exc)
+            return
+
+        if status == 200 and "<statusString>OK</statusString>" in body:
+            _LOGGER.info("Подписка на события оформлена (%s, pictureURLType=binary)", name)
+        else:
+            _LOGGER.debug(
+                "Устройство отклонило подписку (%s, HTTP %s): %s",
+                name,
+                status,
+                " ".join(body.split())[:300],
+            )
+
     async def _connect_and_read(self) -> None:
         timeout = aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=70)
         async with aiohttp.ClientSession(timeout=timeout) as session:
+            await self._async_subscribe(session)
+
             url = f"{self._base_url}{ALERT_STREAM_PATH}"
             self._nc += 1
             auth_header = await async_build_auth_header(

@@ -4,6 +4,9 @@ from __future__ import annotations
 DOMAIN = "hikvision_acs"
 
 CONF_VERIFY_SSL = "verify_ssl"
+# Экспериментально: подписка с pictureURLType=binary ради фото в потоке.
+# По умолчанию выключено -- см. комментарий у SUBSCRIBE_EVENT_CANDIDATES.
+CONF_SUBSCRIBE_PICTURES = "subscribe_pictures"
 
 DEFAULT_PORT = 443
 DEFAULT_VERIFY_SSL = False
@@ -12,6 +15,48 @@ DEFAULT_NAME = "Hikvision Access Control"
 ALERT_STREAM_PATH = "/ISAPI/Event/notification/alertStream?format=json"
 DEVICE_INFO_PATH = "/ISAPI/System/deviceInfo?format=json"
 ACS_CFG_PATH = "/ISAPI/AccessControl/AcsCfg?format=json"
+SUBSCRIBE_EVENT_PATH = "/ISAPI/Event/notification/subscribeEvent"
+SUBSCRIBE_TIMEOUT = 10
+
+# Снимки попадают в поток только если подписка запрошена с
+# pictureURLType=binary (/ISAPI/Event/notification/subscribeEventCap
+# подтверждает поддержку: pictureURLType=binary,
+# isSupportModifySubscribeEvent=true). minorEvent не перечисляем -- нужны
+# все подтипы AccessControllerEvent, фильтруем уже у себя.
+# Минорные коды AccessControllerEvent, которые устройство перечисляет в
+# subscribeEventCap как доступные для подписки.
+_MINOR_EVENT_CODES = (
+    "0x1,0x6,0x7,0x8,0x9,0xa,0xb,0xc,0xd,0xe,0xf,0x10,0x11,0x12,0x13,0x14,"
+    "0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1f,0x20,0x21,0x22,0x23,0x24,"
+    "0x26,0x27,0x31,0x33,0x4b,0x4c,0x50,0x5e,0x68,0x75,0x82,0x84,0x8e,0x97,"
+    "0x98,0x9b,0xa4,0xa8,0xb5,0xc1,0x9f,0xa0"
+)
+
+
+def _subscribe_xml(event_mode: str, minor_event: str | None) -> str:
+    minor = f"<minorEvent>{minor_event}</minorEvent>" if minor_event else ""
+    return (
+        '<SubscribeEvent version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">'
+        "<heartbeat>30</heartbeat>"
+        "<channelMode>all</channelMode>"
+        f"<eventMode>{event_mode}</eventMode>"
+        "<EventList><Event>"
+        "<type>AccessControllerEvent</type>"
+        f"{minor}"
+        "<pictureURLType>binary</pictureURLType>"
+        "</Event></EventList>"
+        "</SubscribeEvent>"
+    )
+
+
+# Прошивки расходятся в том, какие поля считают обязательными, а ошибка
+# приходит одна и та же (MessageParametersLack), без указания поля. Поэтому
+# пробуем варианты по порядку и запоминаем сработавший.
+SUBSCRIBE_EVENT_CANDIDATES = (
+    ("list+minor", _subscribe_xml("list", _MINOR_EVENT_CODES)),
+    ("list", _subscribe_xml("list", None)),
+    ("all", _subscribe_xml("all", None)),
+)
 
 # Флаги AcsCfg, без которых терминал не вкладывает JPEG в событие.
 # На заводских настройках DS-K1T342MFWX оба false.

@@ -14,6 +14,7 @@ from .alertstream import HikvisionAlertStreamClient, async_fetch_json, classify_
 from .const import (
     ACS_CFG_PATH,
     AUTH_EVENT_TYPES,
+    CONF_SUBSCRIBE_PICTURES,
     CONF_VERIFY_SSL,
     DOMAIN,
     EVENT_BUS_EVENT,
@@ -134,6 +135,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         verify_ssl=entry.data[CONF_VERIFY_SSL],
         on_event=_on_event,
         on_connection_change=_on_connection_change,
+        subscribe_pictures=entry.options.get(CONF_SUBSCRIBE_PICTURES, False),
     )
 
     entry.runtime_data = data
