@@ -58,9 +58,16 @@ SUBSCRIBE_EVENT_CANDIDATES = (
     ("all", _subscribe_xml("all", None)),
 )
 
-# Флаги AcsCfg, без которых терминал не вкладывает JPEG в событие.
-# На заводских настройках DS-K1T342MFWX оба false.
-PICTURE_UPLOAD_FLAGS = ("uploadCapPic", "uploadVerificationPic")
+# Флаги AcsCfg, без которых снимка не будет. upload* отвечают за отправку
+# вместе с событием, save* -- за то, что терминал вообще делает и хранит
+# снимок (без них журнал событий не содержит и pictureURL).
+# На заводских настройках DS-K1T342MFWX все четыре false.
+PICTURE_UPLOAD_FLAGS = (
+    "uploadCapPic",
+    "uploadVerificationPic",
+    "saveCapPic",
+    "saveVerificationPic",
+)
 
 # Предохранитель: если boundary не находится, а буфер пухнет -- значит поток
 # рассинхронизирован, лучше переподключиться, чем съесть всю память.
@@ -87,16 +94,18 @@ SEEN_SERIALS_MEMORY = 64
 # моделей). Разные прошивки могут добавлять свои коды -- неизвестные
 # пары публикуются как "unknown_<major>_<minor>", ничего не теряется.
 EVENT_LABELS: dict[tuple[int, int], str] = {
-    # Подтверждено на DS-K1T342MFWX (прошивка шлёт именно эти коды):
+    # Подтверждено на DS-K1T342MFWX (V4.38.0) -- в потоке и в журнале
+    # /ISAPI/AccessControl/AcsEvent:
     (5, 1): "card_authenticated",
     (5, 21): "door_opened",
     (5, 22): "door_closed",
+    (5, 75): "face_authenticated",
+    (5, 76): "face_auth_failed",
+    (5, 181): "password_authenticated",
     # Из документации, на DS-K1T342MFWX не наблюдались -- другие прошивки
     # и другие способы верификации:
     (5, 27): "exit_button_pressed",
     (5, 38): "card_authenticated",
-    (5, 75): "face_authenticated",
-    (5, 76): "face_auth_failed",
     (5, 113): "fingerprint_authenticated",
 }
 
@@ -105,6 +114,7 @@ EVENT_LABELS: dict[tuple[int, int], str] = {
 # доли секунды после прохода и иначе затирал бы и имя, и снимок.
 AUTH_EVENT_TYPES = {
     "card_authenticated",
+    "password_authenticated",
     "face_authenticated",
     "fingerprint_authenticated",
     "face_auth_failed",
@@ -113,6 +123,7 @@ AUTH_EVENT_TYPES = {
 # Какие из них считаем успешной авторизацией (для sensor.last_user)
 SUCCESS_EVENT_TYPES = {
     "card_authenticated",
+    "password_authenticated",
     "face_authenticated",
     "fingerprint_authenticated",
 }
